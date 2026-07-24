@@ -14,6 +14,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.SeekBar
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -65,6 +66,14 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private var radioKm = 2
     private val resultadosMarkers = mutableListOf<Marker>()
+    private var ultimaBusqueda: List<LugarEncontrado> = emptyList()
+
+    // Si hay un destino elegido, "atrás" lo deshace en vez de cerrar la app.
+    private val deshacerDestinoCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            deshacerSeleccionDeDestino()
+        }
+    }
 
     // Ubicación GPS real y actual del dispositivo (no la de recogida). Se usa
     // como centro de la búsqueda de lugares. Null hasta que llega la primera lectura.
@@ -98,6 +107,7 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
         setContentView(binding.root)
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        onBackPressedDispatcher.addCallback(this, deshacerDestinoCallback)
 
         leerIntentDeAeroGate()
         aplicarInsetsDeSistema()
@@ -270,6 +280,7 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
         )
         destinoSeleccionado = latLng
         binding.btnFinishTrip.isEnabled = true
+        deshacerDestinoCallback.isEnabled = true
     }
 
     private fun seleccionarComoDestino(marker: Marker) {
@@ -279,6 +290,29 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
         marcarDestino(latLng, nombre)
         mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 15f))
         Toast.makeText(this, "Destino: $nombre", Toast.LENGTH_SHORT).show()
+    }
+
+    // "Atrás" con un destino ya elegido: lo deshace y redibuja los resultados
+    // morados de la última búsqueda, en vez de cerrar la aplicación.
+    private fun deshacerSeleccionDeDestino() {
+        destinoMarker?.remove()
+        destinoMarker = null
+        destinoSeleccionado = null
+        binding.btnFinishTrip.isEnabled = false
+        deshacerDestinoCallback.isEnabled = false
+
+        ultimaBusqueda.forEach { lugar ->
+            val marker = mMap.addMarker(
+                MarkerOptions()
+                    .position(lugar.latLng)
+                    .title(lugar.nombre)
+                    .snippet(lugar.direccion)
+                    .icon(bitmapDescriptorFromVector(R.drawable.ic_marker_result))
+            )
+            marker?.let { resultadosMarkers.add(it) }
+        }
+
+        Toast.makeText(this, "Selección de destino deshecha", Toast.LENGTH_SHORT).show()
     }
 
     private fun limpiarMarcadoresDeBusqueda() {
@@ -316,6 +350,8 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
                 ).show()
                 return@launch
             }
+
+            ultimaBusqueda = lugares
 
             lugares.forEach { lugar ->
                 val marker = mMap.addMarker(
