@@ -1,7 +1,10 @@
 package com.example.citydrive
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
@@ -12,6 +15,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.SeekBar
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -19,6 +23,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import androidx.lifecycle.lifecycleScope
 import com.example.citydrive.databinding.ActivityMapsBinding
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
@@ -49,12 +55,32 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
     private var pasajeroNombre = "Pasajero"
     private var categoriaVehiculo = "ECONOMY"
     private var idVuelo = "N/A"
+    private var vinoDeAeroGate = false
 
+    private var pickupMarker: Marker? = null
     private var destinoMarker: Marker? = null
     private var destinoSeleccionado: LatLng? = null
 
     private var radioKm = 10
     private val resultadosMarkers = mutableListOf<Marker>()
+
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+
+    private val permisosDeUbicacionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permisos ->
+        val concedido = permisos[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            permisos[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (concedido) {
+            habilitarUbicacionEnMapa()
+        } else {
+            Toast.makeText(
+                this,
+                "Sin permiso de ubicación: se usa el punto de recogida por defecto",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
 
     private data class LugarEncontrado(val nombre: String, val direccion: String, val latLng: LatLng)
 
@@ -64,6 +90,8 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
 
         binding = ActivityMapsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
         leerIntentDeAeroGate()
         aplicarInsetsDeSistema()
@@ -131,6 +159,7 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun leerIntentDeAeroGate() {
         val data: Uri? = intent?.data
         if (intent?.action == Intent.ACTION_VIEW && data != null) {
+            vinoDeAeroGate = true
             origenLat = intent.getDoubleExtra("PARAM_ORIGEN_LAT", origenLat)
             origenLng = intent.getDoubleExtra("PARAM_ORIGEN_LNG", origenLng)
             pasajeroNombre = intent.getStringExtra("PARAM_PASAJERO_NOMBRE") ?: pasajeroNombre
@@ -142,15 +171,8 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
 
-        val origen = LatLng(origenLat, origenLng)
-        mMap.addMarker(
-            MarkerOptions()
-                .position(origen)
-                .title("Punto de recogida")
-                .snippet("Pasajero: $pasajeroNombre | Vuelo: $idVuelo")
-                .icon(bitmapDescriptorFromVector(R.drawable.ic_marker_pickup))
-        )
-        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(origen, 14f))
+        dibujarMarcadorRecogida(LatLng(origenLat, origenLng))
+        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(origenLat, origenLng), 14f))
 
         Toast.makeText(
             this,
@@ -171,6 +193,56 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
                 true
             } else {
                 false
+            }
+        }
+
+        if (tienePermisoDeUbicacion()) {
+            habilitarUbicacionEnMapa()
+        } else {
+            permisosDeUbicacionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
+    private fun dibujarMarcadorRecogida(latLng: LatLng) {
+        pickupMarker?.remove()
+        pickupMarker = mMap.addMarker(
+            MarkerOptions()
+                .position(latLng)
+                .title("Punto de recogida")
+                .snippet("Pasajero: $pasajeroNombre | Vuelo: $idVuelo")
+                .icon(bitmapDescriptorFromVector(R.drawable.ic_marker_pickup))
+        )
+    }
+
+    private fun tienePermisoDeUbicacion(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    // Activa el punto azul y el botón nativo "mi ubicación" del mapa.
+    // Si la app se abrió sola (sin datos de AeroGate), centra el punto de
+    // recogida en la ubicación real del dispositivo en vez del valor por defecto.
+    @SuppressLint("MissingPermission")
+    private fun habilitarUbicacionEnMapa() {
+        mMap.isMyLocationEnabled = true
+        mMap.uiSettings.isMyLocationButtonEnabled = true
+
+        if (!vinoDeAeroGate) {
+            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                if (location != null) {
+                    origenLat = location.latitude
+                    origenLng = location.longitude
+                    val actual = LatLng(origenLat, origenLng)
+                    dibujarMarcadorRecogida(actual)
+                    mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(actual, 16f))
+                }
             }
         }
     }
