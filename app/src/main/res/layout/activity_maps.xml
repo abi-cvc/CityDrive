@@ -85,7 +85,7 @@
                 android:layout_marginStart="12dp"
                 android:layout_weight="1"
                 android:max="48"
-                android:progress="8" />
+                android:progress="0" />
 
         </LinearLayout>
 

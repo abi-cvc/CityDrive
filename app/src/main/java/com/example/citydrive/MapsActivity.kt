@@ -25,6 +25,8 @@ import androidx.lifecycle.lifecycleScope
 import com.example.citydrive.databinding.ActivityMapsBinding
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
@@ -61,8 +63,12 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
     private var destinoMarker: Marker? = null
     private var destinoSeleccionado: LatLng? = null
 
-    private var radioKm = 10
+    private var radioKm = 2
     private val resultadosMarkers = mutableListOf<Marker>()
+
+    // Ubicación GPS real y actual del dispositivo (no la de recogida). Se usa
+    // como centro de la búsqueda de lugares. Null hasta que llega la primera lectura.
+    private var ubicacionActual: LatLng? = null
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
@@ -226,20 +232,27 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    // Activa el punto azul y el botón nativo "mi ubicación" del mapa.
-    // Si la app se abrió sola (sin datos de AeroGate), centra el punto de
-    // recogida en la ubicación real del dispositivo en vez del valor por defecto.
+    // Activa el punto azul y el botón nativo "mi ubicación" del mapa, y pide una
+    // lectura de ubicación FRESCA (no la última en caché) para usarla como centro
+    // de las búsquedas de lugares cercanos.
     @SuppressLint("MissingPermission")
     private fun habilitarUbicacionEnMapa() {
         mMap.isMyLocationEnabled = true
         mMap.uiSettings.isMyLocationButtonEnabled = true
 
-        if (!vinoDeAeroGate) {
-            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                if (location != null) {
-                    origenLat = location.latitude
-                    origenLng = location.longitude
-                    val actual = LatLng(origenLat, origenLng)
+        fusedLocationClient.getCurrentLocation(
+            Priority.PRIORITY_HIGH_ACCURACY,
+            CancellationTokenSource().token
+        ).addOnSuccessListener { location ->
+            if (location != null) {
+                val actual = LatLng(location.latitude, location.longitude)
+                ubicacionActual = actual
+
+                // Si la app se abrió sola (sin datos de AeroGate), el punto de
+                // recogida también se centra en la ubicación real del dispositivo.
+                if (!vinoDeAeroGate) {
+                    origenLat = actual.latitude
+                    origenLng = actual.longitude
                     dibujarMarcadorRecogida(actual)
                     mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(actual, 16f))
                 }
@@ -278,7 +291,9 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
         ocultarTeclado()
         if (query.isEmpty()) return
 
-        val centro = LatLng(origenLat, origenLng)
+        // Centrado en la ubicación real del dispositivo; si aún no hay una lectura GPS
+        // (permiso recién concedido, sin señal, etc.), usamos el punto de recogida como respaldo.
+        val centro = ubicacionActual ?: LatLng(origenLat, origenLng)
         val radioMetros = radioKm * 1000
         val radioBusqueda = radioKm
 
@@ -322,7 +337,10 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
-    // Places API - Text Search: busca texto libre ("hotel") dentro de un radio en metros.
+    // Places API - Nearby Search: a diferencia de Text Search, "location" + "radius"
+    // aquí SÍ son un límite estricto (no solo una sugerencia de ranking), así que los
+    // resultados quedan realmente contenidos dentro del radio elegido. "keyword" filtra
+    // por texto libre ("hotel") dentro de ese círculo.
     // Se ejecuta en Dispatchers.IO porque hace una llamada de red bloqueante.
     private fun buscarLugaresEnPlacesApi(
         query: String,
@@ -330,10 +348,10 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
         radioMetros: Int
     ): List<LugarEncontrado> {
         val url = URL(
-            "https://maps.googleapis.com/maps/api/place/textsearch/json" +
-                "?query=" + URLEncoder.encode(query, "UTF-8") +
-                "&location=${centro.latitude},${centro.longitude}" +
+            "https://maps.googleapis.com/maps/api/place/nearbysearch/json" +
+                "?location=${centro.latitude},${centro.longitude}" +
                 "&radius=$radioMetros" +
+                "&keyword=" + URLEncoder.encode(query, "UTF-8") +
                 "&key=${BuildConfig.MAPS_API_KEY}"
         )
 
