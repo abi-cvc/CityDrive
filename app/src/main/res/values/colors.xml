@@ -13,4 +13,5 @@
     <color name="disabled_gray">#BDBDBD</color>
     <color name="text_dark">#212121</color>
     <color name="hint_gray">#757575</color>
+    <color name="result_purple">#6A1B9A</color>
 </resources>
