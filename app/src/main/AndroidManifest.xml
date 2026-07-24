@@ -28,6 +28,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Deep link recibido desde AeroGate (App 1) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="citydrive"
+                    android:host="request_ride" />
+            </intent-filter>
         </activity>
 
         <!--
@@ -43,7 +53,16 @@
         -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyBgg0KtKiBXbLQsjqOpQ7AU2QWhaOpVr_g" />
+            android:value="${MAPS_API_KEY}" />
     </application>
+
+    <!-- Visibilidad de paquetes (Android 11+): necesario para resolveActivity()/startActivity()
+         hacia StaySmart (App 3) mediante Intent implícito -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="staysmart" />
+        </intent>
+    </queries>
 
 </manifest>
