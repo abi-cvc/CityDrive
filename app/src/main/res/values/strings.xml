@@ -1,6 +1,5 @@
 <resources>
     <string name="app_name">CityDrive</string>
-    <string name="title_activity_maps">MapsActivity</string>
     <string name="hint_search_destination">Buscar hotel o lugar de destino</string>
     <string name="btn_search">Buscar</string>
     <string name="btn_finish_trip">Viaje Terminado en Hotel</string>
